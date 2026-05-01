@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
+import toast from "react-hot-toast";
 
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN;
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5000";
@@ -12,21 +13,36 @@ export default function MapView() {
     title?: string;
     description?: string;
   };
-  type Story = StoryLocation & { _id?: string };
-  type MarkerEntry = { marker: mapboxgl.Marker; popup: mapboxgl.Popup; story: Story };
+  type DraftStoryLocation = StoryLocation & { imageFile?: File };
+  type Story = StoryLocation & { _id?: string; imageUrl?: string };
+  type MarkerEntry = {
+    marker: mapboxgl.Marker;
+    popup: mapboxgl.Popup;
+    story: Story;
+  };
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<MarkerEntry[]>([]);
+  const suppressMapClickRef = useRef(false);
   // const [markers, setMarkers] = useState<{ lng: number, lat: number }[]>([]);
   const [selectedLocation, setSelectedLocation] =
-    useState<StoryLocation | null>(null);
+    useState<DraftStoryLocation | null>(null);
   const [stories, setStories] = useState<Story[]>([]);
   const [isMapReady, setIsMapReady] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
   const [activeStory, setActiveStory] = useState<Story | null>(null);
-
+  const [editingStory, setEditingStory] = useState<Story | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const closeAddStoryModal = () => {
+    suppressMapClickRef.current = true;
+    setSelectedLocation(null);
+    setSaveError(null);
+    setTimeout(() => {
+      suppressMapClickRef.current = false;
+    }, 0);
+  };
   const escapeHtml = (value: string) =>
     value
       .replaceAll("&", "&amp;")
@@ -59,6 +75,9 @@ export default function MapView() {
     });
 
     map.on("click", (e) => {
+      if (suppressMapClickRef.current) {
+        return;
+      }
       const target = e.originalEvent.target as HTMLElement;
       if (target.closest(".mapboxgl-marker")) return;
       const { lng, lat } = e.lngLat;
@@ -92,15 +111,24 @@ export default function MapView() {
       if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
       const safeTitle = escapeHtml(story.title || "Untitled");
       const safeDescription = escapeHtml(story.description || "No description");
+      const safeImageUrl = escapeHtml(story.imageUrl || "");
 
       const popup = new mapboxgl.Popup({ offset: 25 }).setHTML(`
   <div style="font-family: sans-serif; max-width: 200px;">
+  ${
+    safeImageUrl
+      ? `<img src="${safeImageUrl}" style="width:100%; border-radius:8px; margin-bottom:6px;" />`
+      : ""
+  }
     <h3 style="font-weight: 600; margin-bottom: 4px;">
       ${safeTitle}
     </h3>
     <p style="font-size: 13px; color: #555;">
       ${safeDescription}
     </p>
+
+   
+    
   </div>
 `);
       const marker = new mapboxgl.Marker({ color: "#3b82f6", scale: 1.1 })
@@ -116,7 +144,8 @@ export default function MapView() {
     if (!activeStory || !mapRef.current) return;
 
     const match = markersRef.current.find((m) => {
-      if (activeStory._id && m.story._id) return m.story._id === activeStory._id;
+      if (activeStory._id && m.story._id)
+        return m.story._id === activeStory._id;
       return (
         m.story.lng === activeStory.lng &&
         m.story.lat === activeStory.lat &&
@@ -137,6 +166,27 @@ export default function MapView() {
     // open selected popup
     match.popup.addTo(mapRef.current);
   }, [activeStory]);
+
+  useEffect(() => {
+    return () => {
+      if (selectedLocation?.imageFile) {
+        URL.revokeObjectURL(URL.createObjectURL(selectedLocation.imageFile));
+      }
+    };
+  }, [selectedLocation]);
+
+  const handleDelete = async (id: string) => {
+    try {
+      await fetch(`${API_BASE_URL}/stories/${id}`, {
+        method: "DELETE",
+      });
+      setStories((prev) => prev.filter((s) => s._id != id));
+      setDeletingId(null);
+      toast.success("Story deleted 🗑️");
+    } catch (error) {
+      console.error(error);
+    }
+  };
 
   return (
     <div className="flex w-full h-screen">
@@ -161,10 +211,117 @@ export default function MapView() {
               <p className="text-sm text-zinc-400 line-clamp-2">
                 {story.description || "No description"}
               </p>
+              {story.imageUrl && (
+                <img
+                  src={story.imageUrl}
+                  className="w-full h-24 object-cover rounded mb-2"
+                />
+              )}
+              <div className="flex justify-between items-center mt-2">
+                <button
+                  className="text-xs text-blue-400 hover:underline"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditingStory(story);
+                  }}
+                >
+                  Edit
+                </button>
+
+                <button
+                  className="text-xs text-red-400 hover:text-red-300"
+                  onClick={(e) => {
+                    e.stopPropagation(); // 🚨 IMPORTANT
+                    setDeletingId(story._id!);
+                  }}
+                >
+                  Delete
+                </button>
+              </div>
             </div>
           ))}
         </div>
       </div>
+      {deletingId && (
+        <div className="absolute inset-0 z-50 bg-black/60 flex items-center justify-center">
+          <div className="bg-zinc-900 p-4 rounded-xl text-white">
+            <p className="mb-4">Delete this story?</p>
+            <div className="flex gap-2">
+              <button
+                className="bg-red-500 px-3 py-1 rounded"
+                onClick={() => handleDelete(deletingId)}
+              >
+                Delete
+              </button>
+              <button
+                className="bg-zinc-700 px-3 py-1 rounded"
+                onClick={() => setDeletingId(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingStory && (
+        <div
+          className="absolute inset-0 z-50 bg-black/60 flex items-center justify-center"
+          onClick={() => setEditingStory(null)}
+        >
+          <div
+            className="bg-zinc-900 text-white p-6 rounded-xl w-80"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="mb-4 font-semibold">Edit Story</h2>
+            <input
+              className="w-full mb-2 p-2 bg-zinc-800 rounded"
+              value={editingStory.title || ""}
+              onChange={(e) => {
+                setEditingStory({ ...editingStory, title: e.target.value });
+              }}
+            />
+            <textarea
+              className="w-full mb-4 p-2 bg-zinc-800 rounded"
+              value={editingStory.description || ""}
+              onChange={(e) =>
+                setEditingStory({
+                  ...editingStory,
+                  description: e.target.value,
+                })
+              }
+            />
+
+            <button
+              className="w-full bg-blue-500 py-2 rounded"
+              onClick={async () => {
+                const res = await fetch(
+                  `${API_BASE_URL}/stories/${editingStory._id}`,
+                  {
+                    method: "PUT",
+                    headers: {
+                      "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify(editingStory),
+                  },
+                );
+                if (!res.ok) throw new Error("Failed to update story");
+                const updatedStory = await res.json();
+                setStories((prev) =>
+                  prev.map((s) =>
+                    s._id === editingStory._id ? updatedStory : s,
+                  ),
+                );
+                setEditingStory(null);
+                toast.success("Story updated ✏️");
+              }}
+            >
+              Save changes
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex-1 relative">
         <div className="absolute top-4 left-4 z-40 bg-zinc-900/80 backdrop-blur-md text-white px-4 py-2 rounded-xl border border-zinc-700 shadow-lg">
           <p className="text-sm font-medium">Travel Story Map</p>
@@ -173,10 +330,7 @@ export default function MapView() {
         {selectedLocation && (
           <div
             className="absolute inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center"
-            onClick={() => {
-              setSelectedLocation(null);
-              setSaveError(null);
-            }}
+            onClick={closeAddStoryModal}
           >
             <div
               className="bg-zinc-900 text-white p-6 rounded-2xl w-[350px] shadow-2xl border border-zinc-800"
@@ -186,10 +340,10 @@ export default function MapView() {
                 <h2 className="text-lg font-semibold">Add Story</h2>
                 <button
                   type="button"
-                  className="text-zinc-400 hover:text-white text-xl leading-none px-2"
-                  onClick={() => {
-                    setSelectedLocation(null);
-                    setSaveError(null);
+                  className="inline-flex items-center justify-center h-9 w-9 rounded-full bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-white border border-zinc-600 transition-colors text-lg font-semibold"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closeAddStoryModal();
                   }}
                   aria-label="Close modal"
                 >
@@ -221,30 +375,89 @@ export default function MapView() {
                 }
               />
 
+              <input
+                type="file"
+                accept="image/*"
+                className="w-full mb-3 text-sm text-zinc-400"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    setSelectedLocation((prev) => ({
+                      ...prev!,
+                      imageFile: file,
+                    }));
+                  }
+                }}
+              />
+              {selectedLocation?.imageFile && (
+                <div className="relative mb-3">
+                  <img
+                    src={URL.createObjectURL(selectedLocation.imageFile)}
+                    className="w-full h-32 object-cover rounded mb-2"
+                  />
+                  <button
+                    className="absolute top-1 right-1 bg-black/60 text-white px-2 rounded"
+                    onClick={() =>
+                      setSelectedLocation((prev) => ({
+                        ...prev!,
+                        imageFile: undefined,
+                      }))
+                    }
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+
               <button
                 className="w-full bg-blue-500 hover:bg-blue-600 transition-all py-2.5 rounded-lg font-medium disabled:opacity-60 disabled:cursor-not-allowed"
                 disabled={isSaving}
                 onClick={async () => {
-                  if (!selectedLocation) return;
+                  if (
+                    !selectedLocation?.title?.trim() ||
+                    !selectedLocation?.description?.trim()
+                  ) {
+                    setSaveError("Please fill in title and description.");
+                    return;
+                  }
                   setIsSaving(true);
                   setSaveError(null);
                   try {
+                    let imageUrl = null;
+                    if (selectedLocation.imageFile) {
+                      const formData = new FormData();
+                      formData.append("file", selectedLocation.imageFile);
+                      formData.append("upload_preset", "travel-map");
+                      const res = await fetch(
+                        "https://api.cloudinary.com/v1_1/dupwoxrti/image/upload",
+                        {
+                          method: "POST",
+                          body: formData,
+                        },
+                      );
+                      const data = await res.json();
+                      imageUrl = data.secure_url;
+                    }
+                    const storyPayload = { ...selectedLocation };
+                    delete storyPayload.imageFile;
                     const res = await fetch(`${API_BASE_URL}/stories`, {
                       method: "POST",
                       headers: {
                         "Content-Type": "application/json",
                       },
-                      body: JSON.stringify(selectedLocation),
+                      body: JSON.stringify({ ...storyPayload, imageUrl }),
                     });
                     if (!res.ok) throw new Error("Failed to save story");
                     const newStory = await res.json();
                     setStories((prev) => [...prev, newStory]);
                     setSelectedLocation(null);
+                    toast.success("Story saved successfully ✨");
                   } catch (error) {
                     console.error(error);
                     setSaveError(
                       "Could not save story. Ensure backend is running and reachable.",
                     );
+                    toast.error("Failed to save story 😕");
                   } finally {
                     setIsSaving(false);
                   }
