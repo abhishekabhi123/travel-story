@@ -10,6 +10,7 @@ const storySchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   },
+  userId: String,
 });
 
 export const Story = mongoose.model("Story", storySchema);

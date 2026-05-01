@@ -63,6 +63,11 @@ router.get("/", async (_, res) => {
 });
 
 router.put("/:id", async (req, res) => {
+  const story = await Story.findById(req.params.id);
+  if (!story) return res.status(404).json({ error: "Not found" });
+  if (story.userId !== req.body.userId) {
+    return res.status(403).json({ error: "Not allowed" });
+  }
   const updated = await Story.findByIdAndUpdate(req.params.id, req.body, {
     new: true,
   });
@@ -70,6 +75,11 @@ router.put("/:id", async (req, res) => {
 });
 
 router.delete("/:id", async (req, res) => {
+  const story = await Story.findById(req.params.id);
+  if (!story) return res.status(404).json({ error: "Not found" });
+  if (story.userId !== req.body.userId) {
+    return res.status(403).json({ error: "Not allowed" });
+  }
   await Story.findByIdAndDelete(req.params.id);
   return res.json({ success: true });
 });

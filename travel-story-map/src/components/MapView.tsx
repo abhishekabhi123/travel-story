@@ -7,6 +7,8 @@ mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN;
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5000";
 
 export default function MapView() {
+  const userId = localStorage.getItem("userId") || crypto.randomUUID();
+  localStorage.setItem("userId", userId);
   type StoryLocation = {
     lng: number;
     lat: number;
@@ -14,7 +16,11 @@ export default function MapView() {
     description?: string;
   };
   type DraftStoryLocation = StoryLocation & { imageFile?: File };
-  type Story = StoryLocation & { _id?: string; imageUrl?: string };
+  type Story = StoryLocation & {
+    _id?: string;
+    imageUrl?: string;
+    userId?: string;
+  };
   type MarkerEntry = {
     marker: mapboxgl.Marker;
     popup: mapboxgl.Popup;
@@ -35,6 +41,9 @@ export default function MapView() {
   const [activeStory, setActiveStory] = useState<Story | null>(null);
   const [editingStory, setEditingStory] = useState<Story | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"all" | "mine">("all");
+  const filteredStories =
+    viewMode === "mine" ? stories.filter((s) => s.userId === userId) : stories;
   const closeAddStoryModal = () => {
     suppressMapClickRef.current = true;
     setSelectedLocation(null);
@@ -175,10 +184,24 @@ export default function MapView() {
     };
   }, [selectedLocation]);
 
+  useEffect(() => {
+    if (viewMode === "mine" && filteredStories.length > 0) {
+      const first = filteredStories[0];
+      mapRef.current?.flyTo({
+        center: [first.lng, first.lat],
+        zoom: 12,
+      });
+    }
+  }, [viewMode, stories]);
+
   const handleDelete = async (id: string) => {
     try {
       await fetch(`${API_BASE_URL}/stories/${id}`, {
         method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ userId }),
       });
       setStories((prev) => prev.filter((s) => s._id != id));
       setDeletingId(null);
@@ -192,19 +215,48 @@ export default function MapView() {
     <div className="flex w-full h-screen">
       {/* sidebar */}
       <div className="w-80 bg-zinc-900 text-white border-r border-zinc-800 overflow-y-auto">
+        <div className="p-4 border-b border-zinc-800">
+          <div className="flex gap-2 bg-zinc-800 p-1 rounded-lg">
+            <button
+              onClick={() => setViewMode("all")}
+              className={`flex-1 py-1.5 text-sm rounded-md transition ${
+                viewMode === "all"
+                  ? "bg-blue-500 text-white"
+                  : "text-zinc-400 hover:text-white"
+              }`}
+            >
+              🌍 All
+            </button>
+
+            <button
+              onClick={() => setViewMode("mine")}
+              className={`flex-1 py-1.5 text-sm rounded-md transition ${
+                viewMode === "mine"
+                  ? "bg-blue-500 text-white"
+                  : "text-zinc-400 hover:text-white"
+              }`}
+            >
+              👤 Mine
+            </button>
+          </div>
+        </div>
+
         <div className="p-4 space-y-3">
           <h2 className="text-lg font-semibold mb-2">Stories</h2>
-          {stories.map((story, index) => (
+          {filteredStories.length === 0 && (
+            <p className="text-sm text-zinc-500 px-4">No stories here yet.</p>
+          )}
+          {filteredStories.map((story, index) => (
             <div
               key={index}
               onClick={() => {
                 setActiveStory(story);
               }}
-              className={`p-3 rounded-lg cursor-pointer transition-all border 
+              className={`group p-3 rounded-lg cursor-pointer transition-all border 
                 ${
                   activeStory === story
                     ? "bg-blue-500/20 border-blue-500"
-                    : "bg-zinc-800 border-zinc-700 hover:bg-zinc-700"
+                    : "bg-zinc-800 border-zinc-700 hover:bg-zinc-700 hover:scale-[1.02]"
                 }`}
             >
               <h3 className="font-medium">{story.title || "Untitled"}</h3>
@@ -217,27 +269,29 @@ export default function MapView() {
                   className="w-full h-24 object-cover rounded mb-2"
                 />
               )}
-              <div className="flex justify-between items-center mt-2">
-                <button
-                  className="text-xs text-blue-400 hover:underline"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setEditingStory(story);
-                  }}
-                >
-                  Edit
-                </button>
+              {story.userId === userId && (
+                <div className="flex justify-between items-center mt-2">
+                  <button
+                    className="text-xs text-blue-400 hover:underline"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingStory(story);
+                    }}
+                  >
+                    Edit
+                  </button>
 
-                <button
-                  className="text-xs text-red-400 hover:text-red-300"
-                  onClick={(e) => {
-                    e.stopPropagation(); // 🚨 IMPORTANT
-                    setDeletingId(story._id!);
-                  }}
-                >
-                  Delete
-                </button>
-              </div>
+                  <button
+                    className="text-xs text-red-400 hover:text-red-300"
+                    onClick={(e) => {
+                      e.stopPropagation(); // 🚨 IMPORTANT
+                      setDeletingId(story._id!);
+                    }}
+                  >
+                    Delete
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -302,7 +356,7 @@ export default function MapView() {
                     headers: {
                       "Content-Type": "application/json",
                     },
-                    body: JSON.stringify(editingStory),
+                    body: JSON.stringify({ ...editingStory, userId }),
                   },
                 );
                 if (!res.ok) throw new Error("Failed to update story");
@@ -445,7 +499,11 @@ export default function MapView() {
                       headers: {
                         "Content-Type": "application/json",
                       },
-                      body: JSON.stringify({ ...storyPayload, imageUrl }),
+                      body: JSON.stringify({
+                        ...storyPayload,
+                        imageUrl,
+                        userId,
+                      }),
                     });
                     if (!res.ok) throw new Error("Failed to save story");
                     const newStory = await res.json();
