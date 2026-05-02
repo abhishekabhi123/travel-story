@@ -92,7 +92,7 @@ export default function MapView() {
     const map = new mapboxgl.Map({
       container: mapContainer.current!,
       style: "mapbox://styles/mapbox/dark-v11",
-      center: [75.7804, 11.2588], // Calicut 👀
+      center: [77.5946, 12.9716], // Bangalore
       zoom: 12,
     });
 
@@ -138,10 +138,13 @@ export default function MapView() {
       const safeImageUrl = escapeHtml(story.imageUrl || "");
 
       const popup = new mapboxgl.Popup({ offset: 25 }).setHTML(`
-  <div style="font-family: sans-serif; max-width: 200px;">
+  <div style="font-family: sans-serif; width: 200px;">
   ${
     safeImageUrl
-      ? `<img src="${safeImageUrl}" style="width:100%; border-radius:8px; margin-bottom:6px;" />`
+      ? `<div style="position: relative; width: 100%; height: 120px; border-radius: 8px; margin-bottom: 6px; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+           <div style="position: absolute; top: -10px; left: -10px; right: -10px; bottom: -10px; background-image: url('${safeImageUrl}'); background-size: cover; background-position: center; filter: blur(8px); opacity: 0.5;"></div>
+           <img src="${safeImageUrl}" style="position: relative; width: 100%; height: 100%; object-fit: contain; z-index: 10;" />
+         </div>`
       : ""
   }
     <h3 style="font-weight: 600; margin-bottom: 4px;">
@@ -355,10 +358,16 @@ export default function MapView() {
                 {story.description || "No description"}
               </p>
               {story.imageUrl && (
-                <img
-                  src={story.imageUrl}
-                  className="w-full h-24 object-cover rounded mb-2"
-                />
+                <div className="relative w-full h-24 rounded mb-2 flex items-center justify-center overflow-hidden">
+                  <div 
+                    className="absolute -inset-4 bg-cover bg-center blur-md opacity-50" 
+                    style={{ backgroundImage: `url(${story.imageUrl})` }}
+                  ></div>
+                  <img
+                    src={story.imageUrl}
+                    className="relative z-10 w-full h-full object-contain drop-shadow-lg"
+                  />
+                </div>
               )}
               {story.userId === userId && (
                 <div className="flex justify-between items-center mt-2 opacity-0 group-hover:opacity-100 transition">
