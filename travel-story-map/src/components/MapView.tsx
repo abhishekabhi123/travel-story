@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import toast from "react-hot-toast";
@@ -26,11 +26,15 @@ export default function MapView() {
     popup: mapboxgl.Popup;
     story: Story;
   };
+  type MapboxPlace = {
+    id: string;
+    place_name: string;
+    center: [number, number];
+  };
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<MarkerEntry[]>([]);
   const suppressMapClickRef = useRef(false);
-  // const [markers, setMarkers] = useState<{ lng: number, lat: number }[]>([]);
   const [selectedLocation, setSelectedLocation] =
     useState<DraftStoryLocation | null>(null);
   const [stories, setStories] = useState<Story[]>([]);
@@ -42,15 +46,24 @@ export default function MapView() {
   const [editingStory, setEditingStory] = useState<Story | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"all" | "mine">("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [results, setResults] = useState<MapboxPlace[]>([]);
+
   const filteredStories =
     viewMode === "mine" ? stories.filter((s) => s.userId === userId) : stories;
+
+  const imagePreviewUrl = useMemo(() => {
+    const file = selectedLocation?.imageFile;
+    if (!file) return null;
+    return URL.createObjectURL(file);
+  }, [selectedLocation?.imageFile]);
   const closeAddStoryModal = () => {
     suppressMapClickRef.current = true;
     setSelectedLocation(null);
     setSaveError(null);
     setTimeout(() => {
       suppressMapClickRef.current = false;
-    }, 0);
+    }, 180);
   };
   const escapeHtml = (value: string) =>
     value
@@ -89,6 +102,8 @@ export default function MapView() {
       }
       const target = e.originalEvent.target as HTMLElement;
       if (target.closest(".mapboxgl-marker")) return;
+      if (target.closest(".mapboxgl-popup")) return;
+      if (target.closest(".mapboxgl-ctrl")) return;
       const { lng, lat } = e.lngLat;
       setSaveError(null);
       setSelectedLocation({ lng, lat });
@@ -177,44 +192,120 @@ export default function MapView() {
   }, [activeStory]);
 
   useEffect(() => {
+    if (!imagePreviewUrl) return;
     return () => {
-      if (selectedLocation?.imageFile) {
-        URL.revokeObjectURL(URL.createObjectURL(selectedLocation.imageFile));
-      }
+      URL.revokeObjectURL(imagePreviewUrl);
     };
-  }, [selectedLocation]);
+  }, [imagePreviewUrl]);
 
   useEffect(() => {
-    if (viewMode === "mine" && filteredStories.length > 0) {
-      const first = filteredStories[0];
-      mapRef.current?.flyTo({
-        center: [first.lng, first.lat],
-        zoom: 12,
-      });
+    if (viewMode !== "mine") return;
+    const mine = stories.filter((s) => s.userId === userId);
+    if (mine.length === 0) return;
+    const first = mine[0];
+    mapRef.current?.flyTo({
+      center: [first.lng, first.lat],
+      zoom: 12,
+    });
+  }, [viewMode, stories, userId]);
+
+  useEffect(() => {
+    const query = searchQuery.trim();
+    if (!query) {
+      return;
     }
-  }, [viewMode, stories]);
+    let isCancelled = false;
+    const timeout = setTimeout(async () => {
+      try {
+        const encoded = encodeURIComponent(query);
+        const res = await fetch(
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encoded}.json?access_token=${import.meta.env.VITE_MAPBOX_TOKEN}`,
+        );
+        if (!res.ok) {
+          if (!isCancelled) setResults([]);
+          return;
+        }
+        const data: { features?: MapboxPlace[] } = await res.json();
+        if (!isCancelled) {
+          setResults(data.features || []);
+        }
+      } catch {
+        if (!isCancelled) setResults([]);
+      }
+    }, 400);
+    return () => {
+      isCancelled = true;
+      clearTimeout(timeout);
+    };
+  }, [searchQuery]);
 
   const handleDelete = async (id: string) => {
     try {
-      await fetch(`${API_BASE_URL}/stories/${id}`, {
+      const res = await fetch(`${API_BASE_URL}/stories/${id}`, {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ userId }),
       });
-      setStories((prev) => prev.filter((s) => s._id != id));
+      if (!res.ok) {
+        toast.error("Could not delete story.");
+        return;
+      }
+      setStories((prev) => prev.filter((s) => s._id !== id));
       setDeletingId(null);
       toast.success("Story deleted 🗑️");
     } catch (error) {
       console.error(error);
+      toast.error("Could not delete story.");
     }
   };
 
   return (
     <div className="flex w-full h-screen">
+      <div className="absolute top-4 right-4 z-40 w-72">
+        <input
+          type="text"
+          placeholder="Search location..."
+          className="w-full px-3 py-2 rounded-lg bg-zinc-900 text-white border border-zinc-700 focus:outline-none"
+          value={searchQuery}
+          onChange={(e) => {
+            const value = e.target.value;
+            setSearchQuery(value);
+            if (!value.trim()) {
+              setResults([]);
+            }
+          }}
+        />
+        {results.length > 0 && (
+          <div className="bg-zinc-900 border border-zinc-700 rounded-lg mt-1 max-h-60 overflow-y-auto text-white">
+            {results.map((place) => (
+              <div
+                key={place.id}
+                className="px-3 py-2 text-sm hover:bg-zinc-800 cursor-pointer"
+                onClick={() => {
+                  const [lng, lat] = place.center ?? [];
+                  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
+
+                  mapRef.current?.flyTo({
+                    center: [lng, lat],
+                    zoom: 13,
+                  });
+
+                  setSelectedLocation({ lng, lat });
+                  setSearchQuery("");
+                  setResults([]);
+                }}
+              >
+                {place.place_name}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* sidebar */}
-      <div className="w-80 bg-zinc-900 text-white border-r border-zinc-800 overflow-y-auto">
+      <div className="w-80 bg-zinc-900 text-white border-r border-zinc-800 overflow-y-auto [scrollbar-width:thin] [scrollbar-color:rgb(82_82_91)_rgb(24_24_27)] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-zinc-900 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-zinc-600 [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-zinc-900 hover:[&::-webkit-scrollbar-thumb]:bg-zinc-500">
         <div className="p-4 border-b border-zinc-800">
           <div className="flex gap-2 bg-zinc-800 p-1 rounded-lg">
             <button
@@ -248,7 +339,7 @@ export default function MapView() {
           )}
           {filteredStories.map((story, index) => (
             <div
-              key={index}
+              key={story._id ?? `story-${index}`}
               onClick={() => {
                 setActiveStory(story);
               }}
@@ -270,7 +361,7 @@ export default function MapView() {
                 />
               )}
               {story.userId === userId && (
-                <div className="flex justify-between items-center mt-2">
+                <div className="flex justify-between items-center mt-2 opacity-0 group-hover:opacity-100 transition">
                   <button
                     className="text-xs text-blue-400 hover:underline"
                     onClick={(e) => {
@@ -284,8 +375,8 @@ export default function MapView() {
                   <button
                     className="text-xs text-red-400 hover:text-red-300"
                     onClick={(e) => {
-                      e.stopPropagation(); // 🚨 IMPORTANT
-                      setDeletingId(story._id!);
+                      e.stopPropagation();
+                      if (story._id) setDeletingId(story._id);
                     }}
                   >
                     Delete
@@ -349,25 +440,33 @@ export default function MapView() {
             <button
               className="w-full bg-blue-500 py-2 rounded"
               onClick={async () => {
-                const res = await fetch(
-                  `${API_BASE_URL}/stories/${editingStory._id}`,
-                  {
-                    method: "PUT",
-                    headers: {
-                      "Content-Type": "application/json",
+                try {
+                  const res = await fetch(
+                    `${API_BASE_URL}/stories/${editingStory._id}`,
+                    {
+                      method: "PUT",
+                      headers: {
+                        "Content-Type": "application/json",
+                      },
+                      body: JSON.stringify({ ...editingStory, userId }),
                     },
-                    body: JSON.stringify({ ...editingStory, userId }),
-                  },
-                );
-                if (!res.ok) throw new Error("Failed to update story");
-                const updatedStory = await res.json();
-                setStories((prev) =>
-                  prev.map((s) =>
-                    s._id === editingStory._id ? updatedStory : s,
-                  ),
-                );
-                setEditingStory(null);
-                toast.success("Story updated ✏️");
+                  );
+                  if (!res.ok) {
+                    toast.error("Could not update story.");
+                    return;
+                  }
+                  const updatedStory = await res.json();
+                  setStories((prev) =>
+                    prev.map((s) =>
+                      s._id === editingStory._id ? updatedStory : s,
+                    ),
+                  );
+                  setEditingStory(null);
+                  toast.success("Story updated ✏️");
+                } catch (err) {
+                  console.error(err);
+                  toast.error("Could not update story.");
+                }
               }}
             >
               Save changes
@@ -394,7 +493,7 @@ export default function MapView() {
                 <h2 className="text-lg font-semibold">Add Story</h2>
                 <button
                   type="button"
-                  className="inline-flex items-center justify-center h-9 w-9 rounded-full bg-zinc-800 text-zinc-200 hover:bg-zinc-700 hover:text-white border border-zinc-600 transition-colors text-lg font-semibold"
+                  className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white border border-zinc-500 transition-colors text-2xl font-semibold leading-none"
                   onClick={(e) => {
                     e.stopPropagation();
                     closeAddStoryModal();
@@ -443,10 +542,11 @@ export default function MapView() {
                   }
                 }}
               />
-              {selectedLocation?.imageFile && (
+              {selectedLocation?.imageFile && imagePreviewUrl && (
                 <div className="relative mb-3">
                   <img
-                    src={URL.createObjectURL(selectedLocation.imageFile)}
+                    src={imagePreviewUrl}
+                    alt="Selected story preview"
                     className="w-full h-32 object-cover rounded mb-2"
                   />
                   <button
