@@ -20,8 +20,8 @@ The goal was to go beyond a basic CRUD app and build something that feels **inte
 
 ## 🚀 Live Demo
 
-👉 [Live App]([text](https://travel-story-amber.vercel.app/))
-👉 [Backend API]([text](https://travel-story-api-ed6q.onrender.com))
+👉 [Live App](https://travel-story-amber.vercel.app/)
+👉 [Backend API](https://travel-story-api-ed6q.onrender.com)
 
 
 
