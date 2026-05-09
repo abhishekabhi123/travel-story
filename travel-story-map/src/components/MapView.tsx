@@ -265,8 +265,8 @@ export default function MapView() {
   };
 
   return (
-    <div className="flex w-full h-screen">
-      <div className="absolute top-4 right-4 z-40 w-72">
+    <div className="flex flex-col-reverse md:flex-row w-full h-[100dvh] overflow-hidden">
+      <div className="absolute top-4 z-40 w-[calc(100%-2rem)] md:w-72 left-4 md:left-auto md:right-4">
         <input
           type="text"
           placeholder="Search location..."
@@ -308,8 +308,8 @@ export default function MapView() {
       </div>
 
       {/* sidebar */}
-      <div className="w-80 bg-zinc-900 text-white border-r border-zinc-800 overflow-y-auto [scrollbar-width:thin] [scrollbar-color:rgb(82_82_91)_rgb(24_24_27)] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-zinc-900 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-zinc-600 [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-zinc-900 hover:[&::-webkit-scrollbar-thumb]:bg-zinc-500">
-        <div className="p-4 border-b border-zinc-800">
+      <div className="w-full md:w-80 h-[40%] md:h-full bg-zinc-900 text-white border-t md:border-t-0 md:border-r border-zinc-800 overflow-y-auto [scrollbar-width:thin] [scrollbar-color:rgb(82_82_91)_rgb(24_24_27)] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-zinc-900 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-zinc-600 [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-zinc-900 hover:[&::-webkit-scrollbar-thumb]:bg-zinc-500 shrink-0">
+        <div className="p-4 border-b border-zinc-800 sticky top-0 bg-zinc-900 z-20">
           <div className="flex gap-2 bg-zinc-800 p-1 rounded-lg">
             <button
               onClick={() => setViewMode("all")}
@@ -397,8 +397,8 @@ export default function MapView() {
         </div>
       </div>
       {deletingId && (
-        <div className="absolute inset-0 z-50 bg-black/60 flex items-center justify-center">
-          <div className="bg-zinc-900 p-4 rounded-xl text-white">
+        <div className="absolute inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-zinc-900 p-4 rounded-xl text-white w-full max-w-sm">
             <p className="mb-4">Delete this story?</p>
             <div className="flex gap-2">
               <button
@@ -420,11 +420,11 @@ export default function MapView() {
 
       {editingStory && (
         <div
-          className="absolute inset-0 z-50 bg-black/60 flex items-center justify-center"
+          className="absolute inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
           onClick={() => setEditingStory(null)}
         >
           <div
-            className="bg-zinc-900 text-white p-6 rounded-xl w-80"
+            className="bg-zinc-900 text-white p-6 rounded-xl w-full max-w-sm"
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="mb-4 font-semibold">Edit Story</h2>
@@ -484,18 +484,18 @@ export default function MapView() {
         </div>
       )}
 
-      <div className="flex-1 relative">
-        <div className="absolute top-4 left-4 z-40 bg-zinc-900/80 backdrop-blur-md text-white px-4 py-2 rounded-xl border border-zinc-700 shadow-lg">
+      <div className="flex-1 relative min-h-[60%] md:min-h-0 w-full shrink-0 md:shrink">
+        <div className="absolute top-20 md:top-4 left-4 z-40 bg-zinc-900/80 backdrop-blur-md text-white px-4 py-2 rounded-xl border border-zinc-700 shadow-lg pointer-events-none">
           <p className="text-sm font-medium">Travel Story Map</p>
           <p className="text-xs text-zinc-400">{stories.length} stories</p>
         </div>
         {selectedLocation && (
           <div
-            className="absolute inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center"
+            className="absolute inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
             onClick={closeAddStoryModal}
           >
             <div
-              className="bg-zinc-900 text-white p-6 rounded-2xl w-[350px] shadow-2xl border border-zinc-800"
+              className="bg-zinc-900 text-white p-6 rounded-2xl w-full max-w-[350px] shadow-2xl border border-zinc-800"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-4">
